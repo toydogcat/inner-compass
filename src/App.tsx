@@ -31,13 +31,18 @@ import {
   Flame, 
   Coffee,
   MapPin,
-  Bot
+  Bot,
+  Cpu
 } from "lucide-react";
+import { useWebLLM } from "./hooks/useWebLLM";
 
 export default function App() {
   // Screen views: 'intro' | 'quiz' | 'loading' | 'result'
   const [screen, setScreen] = useState<"intro" | "quiz" | "loading" | "result">("intro");
   
+  // Local LLM
+  const { engine, progress, status, isLoaded, init: initLLM } = useWebLLM();
+
   // Selected quiz mode: 10, 25 or 50 questions
   const [quizMode, setQuizMode] = useState<"quick" | "normal" | "deep">("quick");
 
@@ -323,30 +328,36 @@ export default function App() {
     setChatHistory(prev => [...prev, { sender: "user", text: userText }]);
     setChatLoading(true);
 
-    try {
-      const response = await fetch("/api/ask-followup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userMessage: userText,
-          resultContext: analysisResult,
-          history: chatHistory.slice(-6).map(h => ({ role: h.sender === "user" ? "user" : "model", text: h.text }))
-        })
-      });
+    if (isLoaded && engine) {
+        try {
+            // Construct context from analysis result
+            const contextStr = analysisResult 
+              ? `使用者的人格特質為：${analysisResult.personalityTalents.title}。${analysisResult.personalityTalents.description}`
+              : "";
+              
+            const messages = [
+                { role: "system", content: `你現在是 InnerCompass 的專業心靈與職涯導師。請根據以下使用者的特質背景，用溫暖、專業且具啟發性的繁體中文回答問題。背景：${contextStr}` },
+                ...chatHistory.slice(-6).map(h => ({ role: h.sender === "user" ? "user" : "assistant", content: h.text })),
+                { role: "user", content: userText }
+            ];
 
-      if (!response.ok) {
-        throw new Error("Chatbot API response error.");
-      }
-
-      const data = await response.json();
-      setChatHistory(prev => [...prev, { sender: "bot", text: data.reply }]);
-    } catch (err) {
-      console.warn("Followup chat failed, delivering offline consultation advice:", err);
-      // Construct a highly customized, warm offline helpful advice based on the user's questionnaire
-      const fallbackReply = `（內在指南離線引導）：收到您的問題「${userText}」。在您的性格中，特別重視價值和目標的印證。這意味著在挑選前進路線時，比起外界包裝，您更需要先確定該領域能在您心中引起什麼樣的共鳴。建議您找一張紙，列出 3 個不考慮金錢尊嚴也想要解決的世界痛點(例如弱勢保障、高科技算力突破、或文創美感推廣)，以此為起點逆推科系與技能，就能得到最清澈的核心答案。如果可能，您可以設置 GEMINI_API_KEY 以解鎖即時對話導師！`;
-      setChatHistory(prev => [...prev, { sender: "bot", text: fallbackReply }]);
-    } finally {
-      setChatLoading(false);
+            // @ts-ignore
+            const reply = await engine.chat.completions.create({ messages });
+            setChatHistory(prev => [...prev, { sender: "bot", text: reply.choices[0].message.content || "" }]);
+        } catch (err) {
+            console.error("Local LLM Error:", err);
+            const fallbackReply = `（本地模型運算錯誤）：抱歉，我在思考時遇到了一點問題。回到您的問題「${userText}」，建議您先回到您的核心特質——「${analysisResult?.personalityTalents.title}」來尋找答案。`;
+            setChatHistory(prev => [...prev, { sender: "bot", text: fallbackReply }]);
+        } finally {
+            setChatLoading(false);
+        }
+    } else {
+        // Fallback for when model isn't loaded or failed to load
+        setTimeout(() => {
+            const fallbackReply = `（內在指南・自動引導）：收到您的問題「${userText}」。根據您的探索結果，建議您在思考此問題時，先回到您的核心特質——「${analysisResult?.personalityTalents.title}」。比起急著尋找標準答案，建議您列出三個您最看重的生命價值，並觀察這個問題是否與這些價值契合。這能幫助您在混亂中找到最清澈的方向！`;
+            setChatHistory(prev => [...prev, { sender: "bot", text: fallbackReply }]);
+            setChatLoading(false);
+        }, 800);
     }
   };
 
@@ -1576,6 +1587,26 @@ export default function App() {
                 </div>
               )}
             </div>
+
+            {/* AI Model Loading Status */}
+            {!isLoaded && (
+              <div className="flex items-center justify-between bg-[#EBF0E6] p-3 rounded-xl border border-[#D1CEC0] mb-2">
+                <div className="flex items-center gap-2 text-sm text-[#5A634D]">
+                  <Cpu className="w-4 h-4" />
+                  <span>本地端 AI 導師模型：{status}</span>
+                </div>
+                {progress > 0 && progress < 100 && (
+                  <span className="text-xs font-bold text-[#C17B5F]">{progress}%</span>
+                )}
+                <button 
+                  onClick={initLLM}
+                  disabled={progress > 0 && progress < 100}
+                  className="px-3 py-1.5 bg-[#5A634D] text-white rounded-lg text-xs font-bold hover:bg-[#484F3D] disabled:opacity-50"
+                >
+                  啟動 AI 導師
+                </button>
+              </div>
+            )}
 
             {/* Chat message input form */}
             <form onSubmit={handleSendChatMessage} className="flex gap-2.5">
