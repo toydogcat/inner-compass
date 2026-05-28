@@ -295,7 +295,7 @@ export const QUESTIONS: Question[] = [
   {
     id: 27,
     text: "如果今天被指定要為一間主打心靈健康放鬆的環保概念店構思視覺陳列，你會？",
-    category: "creator",
+    category: "work-style",
     options: [
       { id: "A", text: "研究環保節能照度最科學的流明數據與永續降溫公式，算好精密的自然採光光能射角", trait: "analyzer" },
       { id: "B", text: "以「幻夜深林」或「水光呼吸」為概念，用原創多媒體、光影低頻及前衛手作打造浸入式感官", trait: "creator" },

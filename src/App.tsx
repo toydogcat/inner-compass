@@ -261,12 +261,77 @@ export default function App() {
     }
   };
 
-  // API Call to process analysis using full-stack capabilities with reliable fallbacks
+  // API Call to process analysis using 3-tier hybrid local-cloud capabilities
   const processAnalysis = async () => {
     setScreen("loading");
     setAiError(null);
     setIsGeneratedByAI(false);
 
+    const fallback = analyzeAnswersFallback(answers);
+
+    // Tier 1: Local GPU AI (Gemma-2B) if loaded
+    if (isLoaded && engine) {
+      try {
+        const prompt = `你現在是 InnerCompass 的專業心靈與職涯導師。
+使用者剛完成自我探索評測。以下是精確規則引擎算出的客觀報告分析大綱：
+- 核心特質稱號：${fallback.personalityTalents.title}
+- 性格世界觀描述：${fallback.personalityTalents.description}
+- MBTI 人格代碼：${fallback.mbtiProfile?.code} (${fallback.mbtiProfile?.name})
+- DISC 行為代碼：${fallback.discProfile?.code} (${fallback.discProfile?.name})
+
+請根據以上使用者的特質背景，為使用者量身打造一段充滿溫暖、治癒力量與智慧的繁體中文【靈魂指南總結寄語】（約 120-150 字），以及一小段針對其核心心理盲點或內在制約的【心靈成長溫柔突破建議】（約 80-100 字）。
+
+請務必嚴格以下列格式 (JSON 格式) 返回，不可包含任何額外說明文字或 \`\`\`json 標記：
+{
+  "holisticSummary": "您的總結寄語內容...",
+  "growthAdvice": "您的心靈突破建議內容..."
+}`;
+
+        // @ts-ignore
+        const response = await engine.chat.completions.create({
+          messages: [
+            { role: "system", content: "你是一個專業的心靈與職涯分析 JSON 生成器。請只返回合法的 JSON，不要輸出任何其他標示語、註釋或對話。" },
+            { role: "user", content: prompt }
+          ]
+        });
+
+        const responseText = response.choices[0].message.content || "";
+        let cleanJsonStr = responseText.trim();
+        if (cleanJsonStr.includes("```")) {
+          const match = cleanJsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+          if (match) cleanJsonStr = match[1];
+        }
+
+        try {
+          const parsed = JSON.parse(cleanJsonStr.trim());
+          if (parsed.holisticSummary) fallback.holisticSummary = parsed.holisticSummary;
+          if (parsed.growthAdvice) fallback.mindAdvice.growthFocus = parsed.growthAdvice;
+        } catch (jsonErr) {
+          console.warn("Failed to parse local Gemma JSON output, using text fallback:", jsonErr);
+        }
+
+        setAnalysisResult(fallback);
+        setIsGeneratedByAI(true);
+      } catch (err: any) {
+        console.warn("Local AI report personalization failed, using clean rule-based report:", err);
+        setAnalysisResult(fallback);
+        setIsGeneratedByAI(false);
+        setAiError("離線 AI 生成遭遇錯誤，已載入本機高品質規則報告。");
+      } finally {
+        setTimeout(() => {
+          setScreen("result");
+          setChatHistory([
+            { 
+              sender: "bot", 
+              text: `本地 AI 導師分析完成！我已結合您的 ${activeQUESTIONSList.length} 大關鍵選擇，用 Gemma 本地神經網路為您融入了專屬的靈魂寄語。歡迎在下方輸入任何職涯、科系或者身體與心靈調節的疑惑，我將隨時為您引路！` 
+            }
+          ]);
+        }, 1500);
+      }
+      return;
+    }
+
+    // Tier 2: Cloud Gemini (if server is active and loaded)
     try {
       const response = await fetch("/api/analyze", {
         method: "POST",
@@ -290,7 +355,6 @@ export default function App() {
       
       if (data.fallbackRequired || !data.result) {
         console.warn("Got status fallback from API:", data.error);
-        const fallback = analyzeAnswersFallback(answers);
         setAnalysisResult(fallback);
         setIsGeneratedByAI(false);
       } else {
@@ -299,15 +363,12 @@ export default function App() {
       }
     } catch (err: any) {
       console.warn("Triggering offline safety mapping due to network limits or API environment rules:", err);
-      const fallback = analyzeAnswersFallback(answers);
       setAnalysisResult(fallback);
       setIsGeneratedByAI(false);
       setAiError(err.message || "系統已自動啟動本機客觀邏輯分析模型。");
     } finally {
-      // Small pause to guarantee fully integrated sensory experience
       setTimeout(() => {
         setScreen("result");
-        // Reset follow up chat history upon new analysis creation
         setChatHistory([
           { 
             sender: "bot", 
@@ -329,8 +390,8 @@ export default function App() {
     setChatLoading(true);
 
     if (isLoaded && engine) {
+        // Tier 1 chatbot: Client-side local Gemma GPU
         try {
-            // Construct context from analysis result
             const contextStr = analysisResult 
               ? `使用者的人格特質為：${analysisResult.personalityTalents.title}。${analysisResult.personalityTalents.description}`
               : "";
@@ -352,12 +413,39 @@ export default function App() {
             setChatLoading(false);
         }
     } else {
-        // Fallback for when model isn't loaded or failed to load
-        setTimeout(() => {
+        // Tier 2 chatbot: Server-side Gemini API fallback
+        try {
+            const response = await fetch("/api/ask-followup", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    userMessage: userText,
+                    resultContext: analysisResult,
+                    history: chatHistory.slice(-6).map(h => ({
+                        sender: h.sender,
+                        text: h.text
+                    }))
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error("伺服器問答返回錯誤。");
+            }
+
+            const data = await response.json();
+            if (data.reply) {
+                setChatHistory(prev => [...prev, { sender: "bot", text: data.reply }]);
+            } else {
+                throw new Error("無效的伺服器回覆。");
+            }
+        } catch (err) {
+            console.warn("Cloud chatbot fallback failed, using local rules templates:", err);
+            // Tier 3 chatbot: Static rules template fallback
             const fallbackReply = `（內在指南・自動引導）：收到您的問題「${userText}」。根據您的探索結果，建議您在思考此問題時，先回到您的核心特質——「${analysisResult?.personalityTalents.title}」。比起急著尋找標準答案，建議您列出三個您最看重的生命價值，並觀察這個問題是否與這些價值契合。這能幫助您在混亂中找到最清澈的方向！`;
             setChatHistory(prev => [...prev, { sender: "bot", text: fallbackReply }]);
+        } finally {
             setChatLoading(false);
-        }, 800);
+        }
     }
   };
 
@@ -445,7 +533,7 @@ export default function App() {
         <div id="connection_indicator" className="flex items-center gap-2 bg-[#F1EFE7] px-3 py-1.5 rounded-full border border-[#D1CEC0] text-xs">
           <span className="w-2 h-2 rounded-full bg-[#5A634D] animate-ping"></span>
           <span className="font-mono text-[10px] font-bold tracking-tight text-[#5A634D]">
-            GEMINI 3.5 ACTIVE
+            LOCAL AI ACTIVE
           </span>
         </div>
       </header>
@@ -1505,7 +1593,7 @@ export default function App() {
 
             <div className="pt-2 border-t border-white/20 flex flex-wrap justify-between items-center text-[10px] opacity-75 tracking-wider uppercase">
               <span>© InnerCompass Multi-Dimensional Report Generator Engine v1.1</span>
-              <span>Gemini Pro Active Cloud Neural Integration</span>
+              <span>WebLLM Local Neural Integration</span>
             </div>
           </section>
 
