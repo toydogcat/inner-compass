@@ -584,15 +584,15 @@ export function analyzeAnswersFallback(answers: { [questionId: number]: string }
     counts.analyzer = 1;
   }
 
-  // Find dominant trait
-  let maxTrait = "analyzer";
-  let maxCount = -1;
-  for (const [trait, count] of Object.entries(counts)) {
-    if (count > maxCount) {
-      maxCount = count;
-      maxTrait = trait;
-    }
-  }
+  // Find dominant and secondary traits
+  const sortedTraits = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const maxTrait = sortedTraits[0][0];
+  const secondTrait = sortedTraits[1][0];
+  const maxCount = sortedTraits[0][1];
+  const secondCount = sortedTraits[1][1];
+  
+  // Define if there's a strong secondary trait (within 15% of the total or just the next highest)
+  const isHybrid = (maxCount - secondCount) / (totalAnswered || 1) <= 0.15;
 
   // Scale and refine DISC percentages (approx summing up to 100)
   const D_raw = Math.round((counts.organizer / totalAnswered) * 100);

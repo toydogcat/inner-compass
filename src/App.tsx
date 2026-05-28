@@ -41,15 +41,32 @@ export default function App() {
   // Selected quiz mode: 10, 25 or 50 questions
   const [quizMode, setQuizMode] = useState<"quick" | "normal" | "deep">("quick");
 
+  // Shuffled version of all questions to ensure variety
+  const [shuffledQuestions, setShuffledQuestions] = useState<Question[]>([]);
+
+  useEffect(() => {
+    // Fisher-Yates shuffle
+    const shuffle = (array: any[]) => {
+      const newArray = [...array];
+      for (let i = newArray.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+      }
+      return newArray;
+    };
+    setShuffledQuestions(shuffle(QUESTIONS));
+  }, []);
+
   // Get active subset list of questions based on selected mode
   const getActiveQUESTIONSList = () => {
+    const source = shuffledQuestions.length > 0 ? shuffledQuestions : QUESTIONS;
     if (quizMode === "normal") {
-      return QUESTIONS.slice(0, 25);
+      return source.slice(0, 25);
     }
     if (quizMode === "deep") {
-      return QUESTIONS;
+      return source;
     }
-    return QUESTIONS.slice(0, 10);
+    return source.slice(0, 10);
   };
 
   const activeQUESTIONSList = getActiveQUESTIONSList();
