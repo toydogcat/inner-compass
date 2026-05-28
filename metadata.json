@@ -1,0 +1,6 @@
+{
+  "name": "自我探索與生涯分析",
+  "description": "透過互動式選擇題，深入分析您的性格天賦、最速配的工作類型與學術科系，並為您的身心健康與職涯規劃提供量身打造的洞察建議。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
